@@ -2,8 +2,8 @@
 
 # %% auto 0
 __all__ = ['X_train', 'X_test', 'y_train', 'y_test', 'input_shape', 'num_classes', 'learning_rate', 'accuracy_list', 'loss_list',
-           'batch_size', 'test_batch_size', 'epochs', 'train_loader', 'test_loader', 'lossfunc', 'optimizer', 'loss',
-           'accuracy', 'model', 'variables', 'cnn', 'cross_entropy']
+           'batch_size', 'test_batch_size', 'epochs', 'train_loader', 'test_loader', 'lossfunc', 'optimizer', 'model',
+           'loss', 'accuracy', 'cnn', 'cross_entropy']
 
 # %% ../digit_tensorflow.ipynb 1
 # Import relevant libraries
@@ -33,12 +33,12 @@ class cnn(tf.Module):
 
     def __init__(self, in_features, out_features):
         super(cnn, self).__init__()
-        self.W_cnn1 = tf.Variable(tf.random.normal([3, 3, 1, 16], stddev=0.1),
+        self.W_cnn1 = tf.Variable(tf.random.normal([3, 3, 1, in_features], stddev=0.1),
                                   name="w_cnn1")
-        self.b_cnn1 = tf.Variable(tf.constant(0.1, shape=[16]), name="b_cnn2")
-        self.W_cnn2 = tf.Variable(tf.random.normal([3, 3, 16, 32], stddev=0.1),
+        self.b_cnn1 = tf.Variable(tf.constant(0.1, shape=[in_features]), name="b_cnn2")
+        self.W_cnn2 = tf.Variable(tf.random.normal([3, 3, in_features, out_features], stddev=0.1),
                                   name="w_cnn2")
-        self.b_cnn2 = tf.Variable(tf.constant(0.1, shape=[32]), name="b_cnn2")
+        self.b_cnn2 = tf.Variable(tf.constant(0.1, shape=[out_features]), name="b_cnn2")
         self.w1 = tf.Variable(tf.random.normal([1568, 256], stddev=0.1),
                               name="w1")
         self.b1 = tf.Variable(tf.random.normal([1, 256], stddev=0.1),
@@ -50,6 +50,7 @@ class cnn(tf.Module):
                               name="w3")
         self.b3 = tf.Variable(tf.random.normal([1, 10], stddev=0.1), name="b3")
 
+    @tf.function(input_signature=[tf.TensorSpec([None,28,28,1], tf.float32)])
     def __call__(self, x):
         x = tf.nn.conv2d(
             x, filters=self.W_cnn1, padding='SAME', strides=[1, 1, 1, 1
@@ -70,12 +71,13 @@ class cnn(tf.Module):
 
         return x
 
+
 # %% ../digit_tensorflow.ipynb 4
 # Define the parameters
 
 input_shape = (28, 28, 1)
 num_classes = y_train.shape[1]
-learning_rate = 1e-3
+learning_rate = 1e-2
 accuracy_list = []
 loss_list = []
 batch_size = 256
@@ -83,12 +85,14 @@ test_batch_size = 6000
 epochs = 10
 
 train_loader = tf.data.Dataset.from_tensor_slices(
-    (X_train, y_train)).batch(batch_size)
+    (X_train, y_train)).shuffle(buffer_size=1024).batch(batch_size)
+
 test_loader = tf.data.Dataset.from_tensor_slices(
     (X_test, y_test)).batch(test_batch_size)
 
+
 #Define the loss function
-lossfunc = tf.keras.losses.CategoricalCrossentropy()
+lossfunc = tf.keras.losses.CategoricalCrossentropy(from_logits = True)
 
 
 def cross_entropy(y_label, y_pred):
@@ -96,7 +100,11 @@ def cross_entropy(y_label, y_pred):
 
 
 # Define the optimizer
-optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
+optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate,amsgrad=True)
+
+
+# Define the model
+model = cnn(16, 32)
 
 # %% ../digit_tensorflow.ipynb 5
 #Fit the model
@@ -104,39 +112,33 @@ optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
 loss = 0
 accuracy = 0
 
-model = cnn(input_shape, num_classes)
-
-variables = [
-    model.W_cnn1, model.b_cnn1, model.W_cnn2, model.b_cnn2, model.w1, model.b1,
-    model.w2, model.b2, model.w3, model.b3
-]
-
 for epoch in range(epochs):
     loss = 0
-    for batch in train_loader:
-        (x, y) = batch
+    for x,y in train_loader:
         with tf.GradientTape() as tape:
             y_pred = model(x)
             loss_val = lossfunc(y, y_pred)
-            grads = tape.gradient(loss_val, variables)
-            for index, item in enumerate(variables):
-                item.assign_sub(learning_rate * grads[index])
+            grads = tape.gradient(loss_val, model.trainable_variables)
+            optimizer.apply_gradients(zip(grads,model.trainable_variables))
             loss += loss_val
     loss_list.append(loss)
     correct_pred = 0
-    for batch in test_loader:
-        (x, y) = batch
-        y = tf.argmax(y).numpy()
-        y_pred = tf.argmax(tf.nn.softmax(model(x))).numpy()
+    for x,y in test_loader:
+        y = tf.argmax(y,axis=1).numpy()
+        y_pred = tf.argmax(tf.nn.softmax(model(x)),axis=1).numpy()
         correct_pred += (y == y_pred).sum().item()
-    accuracy = correct_pred / len(y_test)
+    accuracy = correct_pred / y_test.shape[0]*100
     accuracy_list.append(accuracy)
     print(f"Loss: {loss}, Accuracy: {accuracy}")
 
 # %% ../digit_tensorflow.ipynb 6
 # Plot the loss and accuracy
 plt.plot(accuracy_list, label='Accuracy')
-plt.plot(loss_list, label='Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Values')
+plt.legend()
+plt.show()
+plt.plot(loss_list,'r', label='Loss')
 plt.xlabel('Epochs')
 plt.ylabel('Values')
 plt.legend()

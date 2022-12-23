@@ -4,12 +4,14 @@ from tkinter import *
 
 import numpy as np
 import PIL
+import tensorflow as tf
 import torch
 import torch.nn as nn
 import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 from keras.models import load_model
 from PIL import Image, ImageDraw, ImageOps, ImageTk
+from scipy import stats as st
 from tensorflow import keras
 
 classes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -50,6 +52,77 @@ class CNN(nn.Module):
         return x
 
 
+class cnn(tf.Module):
+
+    def __init__(self, in_features, out_features):
+        super(cnn, self).__init__()
+        self.W_cnn1 = tf.Variable(tf.random.normal([3, 3, 1, in_features], stddev=0.1),
+                                  name="w_cnn1")
+        self.b_cnn1 = tf.Variable(tf.constant(
+            0.1, shape=[in_features]), name="b_cnn2")
+        self.W_cnn2 = tf.Variable(tf.random.normal([3, 3, in_features, out_features], stddev=0.1),
+                                  name="w_cnn2")
+        self.b_cnn2 = tf.Variable(tf.constant(
+            0.1, shape=[out_features]), name="b_cnn2")
+        self.w1 = tf.Variable(tf.random.normal([1568, 256], stddev=0.1),
+                              name="w1")
+        self.b1 = tf.Variable(tf.random.normal([1, 256], stddev=0.1),
+                              name="b1")
+        self.w2 = tf.Variable(tf.random.normal([256, 64], stddev=0.1),
+                              name="w2")
+        self.b2 = tf.Variable(tf.random.normal([1, 64], stddev=0.1), name="b2")
+        self.w3 = tf.Variable(tf.random.normal([64, 10], stddev=0.1),
+                              name="w3")
+        self.b3 = tf.Variable(tf.random.normal([1, 10], stddev=0.1), name="b3")
+
+    def __call__(self, x):
+        x = tf.nn.conv2d(
+            x, filters=self.W_cnn1, padding='SAME', strides=[1, 1, 1, 1
+                                                             ]) + self.b_cnn1
+        x = tf.nn.relu(x)
+        x = tf.nn.max_pool2d(x, ksize=(2, 2), strides=(2, 2), padding="VALID")
+        x = tf.nn.conv2d(
+            x, filters=self.W_cnn2, padding='SAME', strides=[1, 1, 1, 1
+                                                             ]) + self.b_cnn2
+        x = tf.nn.relu(x)
+        x = tf.nn.max_pool2d(x, ksize=(2, 2), strides=(2, 2), padding="VALID")
+        x = tf.reshape(x, [-1, 1568])
+        x = tf.matmul(x, self.w1) + self.b1
+        x = tf.nn.relu(x)
+        x = tf.matmul(x, self.w2) + self.b2
+        x = tf.nn.relu(x)
+        x = tf.matmul(x, self.w3) + self.b3
+
+        return x
+
+
+def mode(lst):
+
+    # creating a dictionary
+    freq = {}
+    for i in lst:
+
+        # mapping each value of list to a
+        # dictionary
+        freq.setdefault(i, 0)
+        freq[i] += 1
+
+    # finding maximum value of dictionary
+    hf = max(freq.values())
+
+    # creating an empty list
+    hflst = []
+
+    # using for loop we are checking for most
+    # repeated value
+    for i, j in freq.items():
+        if j == hf:
+            hflst.append(i)
+
+    # returning the result
+    return hflst
+
+
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
     return np.exp(x) / np.sum(np.exp(x), axis=0)
@@ -61,6 +134,8 @@ def predict_digit(type):
     elif type == 'torch':
         model = torch.load('digit_torch.pt')
         model.eval()
+    elif type == 'tensorflow':
+        model = tf.saved_model.load('.')
     image = Image.open('image.png')
     image = image.resize((28, 28))
     image = image.convert('L')
@@ -73,6 +148,10 @@ def predict_digit(type):
         image = image.reshape((1, 1, 28, 28))
         y_pred = model(torch.from_numpy(image))
         y_pred = y_pred.detach().numpy()
+    elif type == 'tensorflow':
+        image = image.reshape((1, 28, 28, 1))
+        y_pred = model(image)
+        y_pred = y_pred.numpy()
     y_pred = np.array(softmax(y_pred[0]))
     return np.array([y_pred])
 
@@ -84,14 +163,52 @@ def paint(event):
     draw.line([x1, y1, x2, y2], fill="black", width=30)
 
 
-def model():
+def model_keras():
+    filename = "image.png"
+    image1.save(filename)
+    pred = predict_digit('keras')
+    print('argmax', np.argmax(pred[0]), '\n',
+          pred[0][np.argmax(pred[0])], '\n', classes[np.argmax(pred[0])])
+    txt.insert(
+        tk.INSERT, f"{classes[np.argmax(pred[0])]}\nAccuracy: {round(pred[0][np.argmax(pred[0])]*100, 3)}%\n")
+
+
+def model_torch():
     filename = "image.png"
     image1.save(filename)
     pred = predict_digit('torch')
     print('argmax', np.argmax(pred[0]), '\n',
           pred[0][np.argmax(pred[0])], '\n', classes[np.argmax(pred[0])])
-    txt.insert(tk.INSERT, "{}\nAccuracy: {}%".format(
-        classes[np.argmax(pred[0])], round(pred[0][np.argmax(pred[0])]*100, 3)))
+    txt.insert(
+        tk.INSERT, f"{classes[np.argmax(pred[0])]}\nAccuracy: {round(pred[0][np.argmax(pred[0])]*100, 3)}%\n")
+
+
+def model_tensorflow():
+    filename = "image.png"
+    image1.save(filename)
+    pred = predict_digit('tensorflow')
+    print('argmax', np.argmax(pred[0]), '\n',
+          pred[0][np.argmax(pred[0])], '\n', classes[np.argmax(pred[0])])
+    txt.insert(
+        tk.INSERT, f"{classes[np.argmax(pred[0])]}\nAccuracy: {round(pred[0][np.argmax(pred[0])]*100, 3)}%\n")
+
+
+def model_best():
+    filename = "image.png"
+    image1.save(filename)
+    pred = predict_digit('keras')
+    pred1 = predict_digit('torch')
+    pred2 = predict_digit('tensorflow')
+    arr = [classes[np.argmax(pred[0])],
+           classes[np.argmax(pred1[0])], classes[np.argmax(pred2[0])]]
+    prediction = mode(arr)
+    prob = round(pred[0][np.argmax(pred[0])]*100, 3) + round(pred1[0]
+                                                             [np.argmax(pred1[0])]*100, 3) + round(pred2[0][np.argmax(pred2[0])]*100, 3)
+    prob = prob/3
+    print('argmax', np.argmax(pred[0]), '\n',
+          pred[0][np.argmax(pred[0])], '\n', classes[np.argmax(pred[0])])
+    txt.insert(
+        tk.INSERT, f"{prediction[0]}\nAccuracy: {prob}%\n")
 
 
 def clear():
@@ -119,10 +236,17 @@ cv.pack(expand=YES, fill=BOTH)
 cv.bind("<B1-Motion>", paint)
 
 # button=Button(text="save",command=save)
-btnModel = Button(text="Predict", command=model)
+btnModel_keras = Button(text="Predict_Keras", command=model_keras)
+btnModel_torch = Button(text="Predict_Torch", command=model_torch)
+btnModel_tensorflow = Button(
+    text="Predict_Tensorflow", command=model_tensorflow)
+btnModel_best = Button(text="Predict_Best", command=model_best)
 btnClear = Button(text="clear", command=clear)
 # button.pack()
-btnModel.pack()
+btnModel_keras.pack()
+btnModel_torch.pack()
+btnModel_tensorflow.pack()
+btnModel_best.pack()
 btnClear.pack()
 txt.pack()
 root.mainloop()
